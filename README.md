@@ -224,3 +224,75 @@ Don't forget to [join our Discord](https://discord.gg/VptPCZkGNa)!
 ## License
 
 Lit-GPT is released under the [Apache 2.0](https://github.com/Lightning-AI/lit-gpt/blob/main/LICENSE) license.
+
+## Complete guide for finetuning with LoRA  
+  
+This is to record all the commands and steps I used to finetune a llama2 model with LoRA.  
+  
+1. Get access to [meta-llama/Llama-2-7b-chat-hf](https://huggingface.co/meta-llama/Llama-2-7b-chat-hf). We use the 7 billion chat mode, but the same steps should work for all models, except the GPU/Mem/Disk configurations.  
+2. Get a compute instance of at least 100GB SSD storage, 48GB VRAM (may reduce the VRAM size if batchsize is set to be lower than 128 with 7b model in FP16 mode)  
+3. Clone the repo  
+```bash
+git clone https://github.com/Lightning-AI/lit-gpt  
+cd lit-gpt  
+```  
+4. Install dependencies   
+```bash  
+pip install --index-url https://download.pytorch.org/whl/nightly/cu118 --pre 'torch>=2.1.0dev' torchaudio torchvision # Note the torchaudio and torchvision need to be up to date as well, otherwise there could be some C errors.  
+pip install -r requirements.txt  
+pip install huggingface_hub  
+pip install sentencepiece  
+```  
+5. Download the model and convert the param names  
+```bash  
+python scripts/download.py --repo_id meta-llama/Llama-2-7b-chat-hf --token your_hf_token  
+python scripts/convert_hf_checkpoint.py --checkpoint_dir checkpoints/meta-llama/Llama-2-7b-chat-hf  
+```
+6. Download/Create datasets for training  
+For simplicity, we use redpajama as an example. The download links can be found [here](https://huggingface.co/datasets/togethercomputer/RedPajama-Data-1T-Sample/tree/main). We download the `arxiv_sample.jsonl` file, but the same method should work for any other data.  
+```bash  
+mkdir data
+mkdir data/RedPajama-Data-1T-Sample
+wget https://huggingface.co/datasets/togethercomputer/RedPajama-Data-1T-Sample/resolve/main/arxiv_sample.jsonl -O data/RedPajama-Data-1T-Sample/arxiv_sample.jsonl
+```
+
+We can also create the dataset using some json file with the following format:
+```json
+[
+    {
+        "instruction": "Arrange the given numbers in ascending order.",
+        "input": "2, 4, 0, 8, 3",
+        "output": "0, 2, 3, 4, 8"
+    },
+    ...
+]
+```
+
+7. Generate the training/testing sets
+
+In `scripts/prepare_any.py`, we may need to modify the following lines to account for different input file formats:
+```python
+with open(source_path, encoding="utf-8") as f:
+    for row in tqdm(f):
+        text = json.loads(row)["text"]
+        data.append(text)
+```
+
+After modification, execute the following to generate the training/testing sets.  
+```bash
+python scripts/prepare_any.py \
+        --source_path <path to source data downloaded/created in previous step> \
+        --checkpoint_dir <path to model checkpoint, e.g. checkpoints/meta-llama/Llama-2-7b-chat-hf> \
+        --destination_path <path to save the generated train/test set files>
+```
+
+8. Start finetuning  
+We may want to modify the parameters defined in `finetune/lora.py` so that the process can fit to the compute instance we have.
+
+Then, execute the following command to start the finetuning process:  
+```bash
+python finetune/lora.py \
+        --data_dir <path to the folder containing the train/test files generated in previous step> \
+        --checkpoint_dir <path to model checkpoint, e.g. checkpoints/meta-llama/Llama-2-7b-chat-hf> \
+        --out_dir <path to save the logs, finetuned models> \
+```
